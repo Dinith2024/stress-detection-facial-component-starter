@@ -1,0 +1,13 @@
+# Core preprocessing dependencies (Milestone 2)
+opencv-python==4.10.0.84
+numpy==1.26.4
+pandas==2.2.2
+
+# Modelling dependencies (added ahead of Milestone 4, not yet used by scripts/)
+torch==2.3.1
+torchvision==0.18.1
+scikit-learn==1.5.0
+matplotlib==3.9.0
+
+# Optional: swap in for landmark-based alignment instead of the Haar-cascade default
+# facenet-pytorch==2.5.3

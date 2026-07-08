@@ -1,0 +1,21 @@
+# Participant data must never be committed — see docs/ethics_and_consent.md
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Model checkpoints (added in later milestones)
+models/*.pt
+models/*.pth
+models/checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.ipynb_checkpoints/
