@@ -91,6 +91,6 @@ only code, documentation, and non-identifying summary statistics are tracked her
 ## Team
 
 - R.T.D. Sasanga (ITBIN-2313-0101) - facial-dynamics component (this repository)
-- W.G.C.M. Nimsara - keyboard/mouse-dynamics and heart-rate-sensor components (companion repository: https://github.com/ChamathM/stress-detection-facial-component-starter.git)
+- W.G.C.M. Nimsara - keyboard/mouse-dynamics and heart-rate-sensor components (companion repository: https://github.com/Chamathm007/stress-detection-facial-component-starter.git)
 
 Supervised by Mr. Isuru Madusanka Samarappulige. Module: IT41043 Intelligent Systems, Horizon Campus.
