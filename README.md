@@ -1,9 +1,9 @@
-# Stress Monitoring and Relieving Application for IT Professionals — Facial Dynamics Component
+# Stress Detection and Management Application for IT Professionals — Facial Dynamics Component
 
 IT41043 Intelligent Systems — Group Research Assignment, Horizon Campus, Academic Year 2026.
 
 This repository holds the facial-dynamics stress-classification component of a larger
-multimodal stress-monitoring system for IT professionals. It covers the branch of the
+multimodal stress-detection system for IT professionals. It covers the branch of the
 project that takes webcam-captured facial imagery and predicts a 3-class stress level
 (low / moderate / high), conditioned on participant age and gender, using a
 hierarchical-attention convolutional neural network. The keyboard/mouse-dynamics and
@@ -91,6 +91,6 @@ only code, documentation, and non-identifying summary statistics are tracked her
 ## Team
 
 - R.T.D. Sasanga (ITBIN-2313-0101) - facial-dynamics component (this repository)
-- W.G.C.M. Nimsara - keyboard/mouse-dynamics and heart-rate-sensor components (companion repository: https://github.com/Chamathm007/stress-detection-facial-component-starter.git)
+- W.G.C.M. Nimsara - keyboard/mouse-dynamics and heart-rate-sensor components
 
 Supervised by Mr. Isuru Madusanka Samarappulige. Module: IT41043 Intelligent Systems, Horizon Campus.
