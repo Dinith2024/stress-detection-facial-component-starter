@@ -1,21 +1,33 @@
-# Participant data must never be committed — see docs/ethics_and_consent.md
-data/raw/*
-data/processed/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
+# Dataset directories (tracked via .gitkeep)
+data/raw/
+data/processed/
+data/labels/
+data/synthetic/
 
-# Python
+# Model checkpoints & weights
+checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# Python bytecode & environments
 __pycache__/
-*.pyc
-.venv/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+env/
 venv/
+.venv/
 
-# Model checkpoints (added in later milestones)
-models/*.pt
-models/*.pth
-models/checkpoints/
+# Logs & temporary outputs
+logs/
+*.log
+runs/
+wandb/
 
-# OS / editor
+# OS specific
 .DS_Store
-.vscode/
-.ipynb_checkpoints/
+Thumbs.db
+desktop.ini

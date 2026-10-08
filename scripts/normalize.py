@@ -1,85 +1,137 @@
 """
-normalize.py
+scripts/normalize.py
+Image resizing, photometric normalisation (YCrCb luminance histogram equalisation),
+and ImageNet statistical standardization.
 
-Stage 2 of the preprocessing pipeline (System Architecture, block 3).
-
-Takes the face crops produced by face_detect_align.py and:
-  1. resizes to a fixed 224x224 input size (matching the ResNet-18 backbone),
-  2. applies histogram equalisation on the luminance channel for lighting
-     robustness across session times/rooms,
-  3. writes ImageNet-normalisation statistics (mean/std) to a JSON sidecar
-     rather than baking them into the image, so the same crop can be reused
-     for augmented training views without re-deriving normalisation.
-
-Usage:
-    python scripts/normalize.py \
-        --input_dir data/processed/faces \
-        --output_dir data/processed/normalized \
-        --size 224
+Pipeline:
+1. Resize cropped face to 224x224 pixels.
+2. Convert BGR -> YCrCb color space.
+3. Apply CLAHE or Global Histogram Equalisation to Y (luminance) channel.
+4. Convert back to RGB format.
+5. Standardize using ImageNet statistics:
+   mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]
 """
 
-import argparse
-import json
-import logging
-from pathlib import Path
-
+import os
 import cv2
+import argparse
 import numpy as np
+import torch
+from pathlib import Path
+from typing import Tuple, Union, Optional
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
-
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
-
-VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
-
-
-def equalize_luminance(img_bgr: np.ndarray) -> np.ndarray:
-    """Histogram-equalise the Y channel in YCrCb space, preserving colour."""
-    ycrcb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YCrCb)
-    ycrcb[:, :, 0] = cv2.equalizeHist(ycrcb[:, :, 0])
-    return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+# Standard ImageNet normalization parameters
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-def process_image(path: Path, size: int) -> np.ndarray:
-    img = cv2.imread(str(path))
-    if img is None:
-        raise ValueError(f"Could not read {path}")
-    img = equalize_luminance(img)
-    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
-    return img
+def equalize_luminance_ycrcb(image_bgr: np.ndarray, clip_limit: float = 2.0) -> np.ndarray:
+    """
+    Apply Contrast Limited Adaptive Histogram Equalization (CLAHE) to the luminance (Y)
+    channel in YCrCb color space to mitigate varying illumination conditions.
+    Returns RGB image.
+    """
+    ycrcb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2YCrCb)
+    y_chan, cr_chan, cb_chan = cv2.split(ycrcb)
+    
+    # Adaptive histogram equalization on Y channel
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+    y_eq = clahe.apply(y_chan)
+    
+    ycrcb_eq = cv2.merge((y_eq, cr_chan, cb_chan))
+    rgb_eq = cv2.cvtColor(ycrcb_eq, cv2.COLOR_YCrCb2RGB)
+    return rgb_eq
 
 
-def process_directory(input_dir: Path, output_dir: Path, size: int):
-    output_dir.mkdir(parents=True, exist_ok=True)
-    files = [p for p in input_dir.rglob("*") if p.suffix.lower() in VALID_EXTENSIONS]
-    logger.info("Normalising %d images to %dx%d", len(files), size, size)
+def preprocess_and_normalize_frame(
+    image_bgr: np.ndarray,
+    target_size: Tuple[int, int] = (224, 224),
+    apply_hist_eq: bool = True,
+    to_torch_tensor: bool = True
+) -> Union[torch.Tensor, np.ndarray]:
+    """
+    Complete single-frame preprocessing pipeline:
+    1. Resize to target_size (224, 224).
+    2. Luminance equalisation in YCrCb space.
+    3. Scale to [0, 1].
+    4. ImageNet mean & std normalisation: (x - mean) / std.
+    """
+    if image_bgr is None or image_bgr.size == 0:
+        raise ValueError("Invalid image input for normalization.")
+        
+    resized = cv2.resize(image_bgr, target_size, interpolation=cv2.INTER_AREA)
+    
+    if apply_hist_eq:
+        rgb = equalize_luminance_ycrcb(resized)
+    else:
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        
+    img_float = rgb.astype(np.float32) / 255.0
+    normalized = (img_float - IMAGENET_MEAN) / IMAGENET_STD
+    
+    if to_torch_tensor:
+        # Convert HWC -> CHW tensor
+        tensor = torch.from_numpy(normalized.transpose(2, 0, 1)).float()
+        return tensor
+        
+    return normalized
 
-    for path in files:
-        try:
-            out_img = process_image(path, size)
-        except ValueError as e:
-            logger.warning(str(e))
+
+def denormalize_image_tensor(tensor: torch.Tensor) -> np.ndarray:
+    """
+    Reverse ImageNet normalization for visualization.
+    Accepts CHW or BCHW tensor, returns HWC uint8 RGB numpy array.
+    """
+    if tensor.dim() == 4:
+        tensor = tensor[0]
+        
+    np_img = tensor.detach().cpu().numpy().transpose(1, 2, 0)
+    unnormalized = (np_img * IMAGENET_STD) + IMAGENET_MEAN
+    unnormalized = np.clip(unnormalized * 255.0, 0, 255).astype(np.uint8)
+    return unnormalized
+
+
+def batch_normalize_directory(
+    input_dir: str,
+    output_dir: str,
+    target_size: Tuple[int, int] = (224, 224)
+) -> int:
+    """
+    Batch preprocess images from input_dir and save normalized PyTorch tensors (.pt).
+    """
+    in_p = Path(input_dir)
+    out_p = Path(output_dir)
+    out_p.mkdir(parents=True, exist_ok=True)
+    
+    image_files = [f for f in in_p.rglob("*") if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}]
+    count = 0
+    
+    for img_path in image_files:
+        img = cv2.imread(str(img_path))
+        if img is None:
             continue
-        cv2.imwrite(str(output_dir / path.name), out_img)
-
-    # Write normalisation stats once per run, not per image
-    stats_path = output_dir / "normalization_stats.json"
-    with open(stats_path, "w") as f:
-        json.dump({"mean": IMAGENET_MEAN, "std": IMAGENET_STD, "input_size": size}, f, indent=2)
-    logger.info("Wrote normalisation stats to %s", stats_path)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Resize and photometrically normalise face crops.")
-    parser.add_argument("--input_dir", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--size", type=int, default=224)
-    args = parser.parse_args()
-
-    process_directory(Path(args.input_dir), Path(args.output_dir), args.size)
+            
+        tensor = preprocess_and_normalize_frame(img, target_size=target_size, to_torch_tensor=True)
+        rel_path = img_path.relative_to(in_p).with_suffix(".pt")
+        save_path = out_p / rel_path
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(tensor, str(save_path))
+        count += 1
+        
+    return count
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Image resizing and photometric normalization")
+    parser.add_argument("--test-synthetic", action="store_true", help="Test normalization on synthetic image")
+    args = parser.parse_args()
+    
+    # Test normalization
+    dummy_bgr = np.random.randint(0, 256, (300, 300, 3), dtype=np.uint8)
+    out_tensor = preprocess_and_normalize_frame(dummy_bgr)
+    print("=== Normalization Pipeline Test ===")
+    print(f"Input Shape: (300, 300, 3) BGR")
+    print(f"Output Tensor Shape: {out_tensor.shape} (CHW, float32)")
+    print(f"Tensor Min: {out_tensor.min().item():.3f}, Max: {out_tensor.max().item():.3f}")
+    print(f"ImageNet mean applied: {IMAGENET_MEAN}")
+    print(f"ImageNet std applied:  {IMAGENET_STD}")
